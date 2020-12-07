@@ -1,0 +1,315 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+0. Importations
+```{r}
+rm(list = ls())
+library(FactoMineR)
+library(factoextra)
+library(ggplot2)       
+library(corrplot)
+library(ape) 
+library(caret)
+library(funModeling)
+library(visdat)
+library(dplyr)
+library(plyr)
+library(ggplot2)
+```
+
+
+1. Loading and preparation of data
+```{r}
+options(warn = -1)
+setwd("/Users/macbook/Downloads")
+file  <- 'Breast_Cancer_Valid.txt'
+df   <- read.table(paste0(getwd(),'/',file),header = T)
+# View(df)
+```
+
+```{r}
+head(df)
+```
+The dataset contains 10 variables which describe the characteristics of the cell nuclei :
+```{r}
+colnames(df)
+```
+
+It contains a number of observations of :
+```{r}
+nrow(df)
+```
+
+And there are 16 missing values in the dataset, in the column noyaux :
+```{r}
+colSums(is.na(df))
+```
+
+Most of the variables have an integer type, except noyaux :
+```{r}
+vis_dat(df)
+```
+
+So what about the noyaux variable ? :
+```{r}
+unique(df$noyaux)
+```
+
+With a look at the dataset we notice that the variable noyaux should has an integer type too :
+```{r}
+df$noyaux <- as.integer(df$noyaux)
+```
+
+We make sure the conversion went well :
+```{r}
+vis_dat(df)
+```
+
+We replace the NA with the mean of the values of noyaux and make sure the replacement went well :
+```{r}
+m <- mean(df$noyaux, na.rm= TRUE)
+df$noyaux[is.na(df$noyaux)] <- m
+sum(is.na(df$noyaux))
+```
+The variable noyaux has now a numeric type.
+
+
+2. Statistics
+
+2.1 Statistics univariate unstratified
+
+The variable class records the diagnosis (2 : Benin, 4 : Malin) :
+```{r}
+df$class <- factor(df$class)
+```
+
+There are about twice more benin diagnosis than malin diagnosis :
+```{r}
+table(df$class)
+```
+
+```{r}
+vis_dat(df)
+```
+
+```{r}
+summary(df)
+```
+
+What is the mean of the numeric variables ? :
+```{r}
+dfstat <- subset(df, select = -class)
+round(colMeans(dfstat),2)
+```
+
+What is the standard deviation of the numeric variables ? :
+```{r}
+sapply(dfstat, sd) 
+```
+
+
+2.1 Statistics univariate stratified
+
+```{r}
+mean_strat <- aggregate(subset(df, select = -class),by = list(df$class), mean)
+sd_strat   <- aggregate(subset(df, select = -class),by = list(df$class), sd)
+cv_strat   <- aggregate(subset(df, select = -class),by = list(df$class),function(x){return(sd(x)/mean(x)*100)})
+print(summary(subset(df, select = -class)))
+```
+
+Vizualisations :
+```{r}
+i <- 9
+# colors
+col  <- c('blue', 'red', 'pink' , 'purple' )
+par(mfrow = c(1,3)) ; 
+boxplot(df[,i]~df$class, 
+        las = 2, 
+        col = col,
+        cex.main = 0.8, main = names(df)[i])
+
+# histograms
+hist(df[,i], 
+     nclass = 30, 
+     main   = paste0(names(df)[i]) ,
+     xlab   = 'values',
+     col    = 'blue',
+     cex.main = 0.8)
+
+# pplot 
+qqnorm(df[,i], col = 'blue', cex = 0.8, 
+       cex.main = 0.8,
+       main = paste0('Normality = ', names(df)[i]))
+```
+From what we can see we can say that for instance almost all of the benin diagnosis are for a mitose of 1, and the distribution of the mitose values is very asymetrical and concentrated on 1. 
+
+2.2 Correlations
+
+```{r}
+cor(dfstat)
+```
+
+From what we can see many variables have a high correlation with each other :
+```{r}
+corrplot(cor(dfstat), method = 'ellipse', type = 'upper')
+```
+For instance, (and as we could expect) the aspect of the nucleus (norm_nuclei) is positively correlated with the uniformity of the cell size and with the uniformity of the cell shape. An other expected observation is the correlation between the aspect of the chromatin (chromatine) and the uniformity of the cell size and shape.
+
+
+3. PCA
+
+3.1 Inertia
+
+```{r}
+df$class <- as.integer(df$class)
+acp <- PCA(df, scale.unit = T, quali.sup = c(1), graph = F)
+# acp est un objet composée d'un ensemble de listes R
+inertie <- acp$eig
+inertie
+```
+The inertia represents the part of information explained by an axis (= the quality of the representation on the axis) : the axis 1 explains 69% of the information and the axis 2 explains 9% of the information, both matter the most. So we could represent the data with a 2D and explain 79% of the information --> in short we get a great reduction of the dimension of the data (divided by 5) and loose 21% of the information.
+We can say that the 5th first axes explain the great part of the information (around 95%).
+An other way to see it :
+
+```{r}
+h <- fviz_eig(acp, addlabels = T, ylim = c(0,80), ylab = c('% inertie'))
+print(h)
+```
+Based on Kaiser's rule the 1rst axis should be chosen (eigen value > 1) :
+```{r}
+fviz_eig(acp, choice='eigenvalue')
+```
+
+
+3.2 Quality of a plot on axes 1-2
+
+We get the coordinates of the variables on axes 1-2 :
+```{r}
+acp$var$coord[,1:2]
+```
+
+Are the variables "well explained" by the axes 1-2 ?
+```{r}
+apply(acp$var$cos2[,1:2],1,sum)
+```
+Most of the variables are well explained on the 2 axes (around 80%) : mitose, class and uni_taille are the most well explained, and the less well explained are adhesion and norm_nuclei but it is about 67%, so it is acceptable.
+
+We can see the explanation on each axis :
+```{r}
+fviz_cos2(acp, choice = "var", axes = 1)
+```
+
+```{r}
+fviz_cos2(acp, choice = "var", axes = 2)
+```
+It seems that the axis 2 explains largely but also almost exclusively mitose. We can wonder if the axis has a such good quality only "because of" mitose and so on if the axis 3 could be a better compromise :
+
+```{r}
+fviz_cos2(acp, choice = "var", axes = 3)
+```
+The quality of representation is indeed more evenly distributed among the variables. We will question the relevance of axes 1-3 by comparing with axes 1-2 when doing projections.
+
+
+3.3 Projection on axes 1-2
+
+```{r}
+fviz_pca_var(acp, axes = c(1, 2), col.var = "coord",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             repel = TRUE )
+```
+
+Axis 2 would oppose patients with a high mitose type and teill_epi with patients with low noyaux, chromatine and class.
+Globally the quality of the representation it not very good, it doesn't allow to distinguish groups very easily.
+
+As we wonder if axis 2 was "great" only thanks to mitose we compare the projection with axes 1-3 :
+```{r}
+fviz_pca_var(acp, axes = c(1, 3), col.var = "coord",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             repel = TRUE )
+```
+And indeed, axis 3 allows to separate variables more distinctively (mitose is, as expected - because very well explainded by axis 2 - not well explained otherwise). Axis 2 separated patients with high noyaux and adhesion from those with low norm_nuclie and teille_epi.
+On the whole the representation seems better as it allows to separate variables more distinctively.
+
+
+3.4 Projection on axes 1-2 or 1-3
+
+```{r}
+df$class <- mapvalues(df$class, 
+          from=c("1","2"), 
+          to=c("B","M"))
+fviz_pca_ind(acp, axes = c(1, 2),
+             geom.ind = "point",
+             col.ind =df$class, # color by groups
+             addEllipses = F, # Concentration ellipses
+             legend.title = "Groups"
+)
+```
+In the 2D representation the distribution between malign and benign patients is different but we should have a look on axes 1-3. 
+
+```{r}
+fviz_pca_ind(acp, axes = c(1, 3),
+             geom.ind = "point",
+             col.ind =df$class, # color by groups
+             addEllipses = F, # Concentration ellipses
+             legend.title = "Groups"
+)
+```
+The repartition is more clear. This distribution should by preferred to do machine learning.
+
+
+3.5 Biplot
+
+```{r}
+PCA_Biplot = function(pca , df, qualisup = NULL, axes = c(1,2), cos2 = 0, ncp = 7 )
+{
+  scale <- 4
+  varX <- pca$var$coord[,axes[1]]; varcosX =  pca$var$cos2[,axes[1]]
+  varY <- pca$var$coord[,axes[2]]; varcosY =  pca$var$cos2[,axes[2]]
+  #-> qualité de représentation dans le plan
+  cosT <- varcosX + varcosY
+  id   <- which(cosT > cos2)
+  Vp   <- pca$svd$V[id,axes] 
+  lam  <- matrix(pca$eig[axes,1],ncol = length(pca$eig[axes,1]), nrow = length(id), byrow = T) 
+  tab  <- pca$var$coord[id,axes]
+  ind  <- data.frame(pca$ind$coor[,axes],'class' = df[,qualisup])
+  names(ind) <- c('X','Y', 'class')
+  g <- ggplot() + geom_point(data = ind,aes(x = X, y = Y, color = class))
+  g <- g + geom_segment(aes(x = rep(0,nrow(tab)), y = rep(0,nrow(tab)), xend = scale*tab[,1],yend = scale*tab[,2]), color = '#990000')
+  g <- g + geom_text(aes(x =scale*tab[,1], y = scale*tab[,2]), label = rownames(tab), hjust = 0.1, vjust = 0.1, color = '#990000' )
+  g <- g + geom_hline(yintercept = 0, colour = '#003300', linetype = 2 )
+  g <- g + geom_vline(xintercept = 0, colour = '#003300', linetype = 2 )
+  g <- g + xlab(paste0('Dim ',axes[1] ,' (', round(pca$eig[axes[1],2], digits = 2 ), '%)' )) 
+  g <- g + ylab(paste0('Dim ',axes[2] ,' (', round(pca$eig[axes[2],2], digits = 2 ), '%)' )) 
+  n <- colnames(pca$ind$coord[,axes])
+   return(g)
+}
+g <- PCA_Biplot(pca = acp, df = df , qualisup = 1)
+print(g)
+```
+From what we can tell the patients with a malign diagnosis tend to have more extreme (higher or lower) values for all the variables than those with a benign diagnosis.
+
+
+3.5 Partitioning
+
+```{r}
+res.cah = HCPC(acp, graph=T, nb.clust = 2)
+fviz_cluster(res.cah, data = df,
+             palette = c("#00AFBB","#2E9FDF", "#E7B800", "#FC4E07"),
+             ggtheme = theme_minimal(),
+             main = "Partitioning Clustering Plot"
+             )
+```
+
+--> as expected we get 2 groups that are consistent with the groups Benign/Malign (we notice that outliers can impact the result). 
+
+To go further we can test our choice to test  a classification model :
+```{r}
+gold <- factor(df$class)
+predacp <- factor(res.cah$data.clust[,9], levels = c(2,1), labels= c('B','M'))
+confusionMatrix(predacp,gold)
+```
+
+The accuracy is not very good (23%), specially because of a poor sensitivity and detection rate.
+
